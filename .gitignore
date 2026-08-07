@@ -1,0 +1,16 @@
+# 个人配置（含签名、session、SendKey）
+config.json
+
+# 抓包数据
+captures/
+*.flows
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 系统
+.DS_Store
+*.log
+/tmp/

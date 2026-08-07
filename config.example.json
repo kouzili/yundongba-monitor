@@ -1,0 +1,15 @@
+{
+  "_comment": "复制为 config.json 后填入你的信息",
+  "stadiums": {},
+  "active_stadiums": [],
+  "target_start": 18,
+  "target_end": 21,
+  "poll_interval": 30,
+  "schedule_signs": {},
+  "book_signs": {},
+  "stadium_dates": {},
+  "available_dates": {},
+  "user_id": 0,
+  "appsessionid": "",
+  "serverchan_key": ""
+}
