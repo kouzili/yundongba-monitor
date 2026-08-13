@@ -8,6 +8,9 @@ config.json
 captures/
 *.flows
 
+# 逆向解包产物（小程序源码，勿提交）
+reverse_unpacked/
+
 # Python
 .venv/
 __pycache__/

@@ -2,7 +2,7 @@
 
 自动轮询「[韵动吧](https://www.sports8.com.cn)」网球场空余时段，发现空场后微信通知 + 可选自动下单预留。
 
-签名算法已逆向，**本地生成签名直接调 API，无需反复抓包**。
+签名本地生成，直接调用 API 查询排期，无需反复抓包。
 
 ## 功能
 
@@ -19,7 +19,6 @@
 ```
 ┌─────────────────────────────────────────────────┐
 │  sign.py（本地签名引擎）                          │
-│  signBymd5 = MD5(排序 "k=v&...&key=" + secret)   │
 └──────────────────┬──────────────────────────────┘
                    │ 本地生成签名，直接调 API
 ┌──────────────────▼──────────────────────────────┐
@@ -60,7 +59,7 @@ cp config.example.json config.json
 
 | 字段 | 说明 |
 |------|------|
-| `secret_api` / `secret_ydb` | 签名密钥（逆向微信小程序所得，见下文） |
+| `secret_api` / `secret_ydb` | 签名密钥（获取方式见下文「获取签名密钥」） |
 | `appsessionid` | 登录会话令牌 |
 | `userid` | 你的用户 ID |
 | `serverchan_key` | Server酱 SendKey（微信通知用） |
@@ -83,21 +82,21 @@ open http://localhost:5100                       # 打开管理页面
 
 ## 获取签名密钥与会话
 
-签名密钥（`secret_api` / `secret_ydb`）与 `appsessionid`、`userid` 通过抓包 / 逆向获取，本项目已实现自动化提取。
+`config.json` 需要三个关键信息：签名密钥（`secret_api` / `secret_ydb`）、会话令牌（`appsessionid`）、用户 ID（`userid`）。
 
-**刷新会话（appsessionid 失效时，约数天一次）**：
+**签名密钥**：项目提供了辅助脚本，可自动定位并解出密钥，填入 `config.json` 即可：
+
+```bash
+.venv/bin/python3 reverse_wxapkg.py --search sign
+```
+
+**会话令牌（appsessionid 失效时，约数天一次）**：
 
 1. 页面点「**启动抓包**」→ 记下代理 IP 和端口
 2. iPhone WiFi 设置 → HTTP 代理 → 手动 → 填入 IP:8080
 3. 打开韵动吧 App（或微信小程序）逛一下订场页面
 4. 回页面点「**停止抓包**」→「**提取会话**」
 5. **手机代理记得关掉**
-
-签名密钥逆向自微信小程序 `__APP__.wxapkg`，核心是 `signBymd5`：
-
-```
-sign = MD5(排序后的 "key=value&...&key=" + secret).toUpperCase()
-```
 
 ## 微信通知配置
 
@@ -108,7 +107,8 @@ sign = MD5(排序后的 "key=value&...&key=" + secret).toUpperCase()
 | 文件 | 说明 |
 |------|------|
 | `app.py` | Flask Web 后台 + 监控引擎 + API |
-| `sign.py` | 签名算法 + API 客户端（查排期 / 下单 / 搜索） |
+| `sign.py` | 签名 + API 客户端（查排期 / 下单 / 搜索） |
+| `reverse_wxapkg.py` | 辅助脚本：获取签名密钥 |
 | `templates/index.html` | 管理界面 |
 | `start.sh` | 一键启动脚本 |
 | `config.json` | 运行时配置（含密钥，已 gitignore） |
@@ -131,7 +131,7 @@ sign = MD5(排序后的 "key=value&...&key=" + secret).toUpperCase()
 - **会话有效期**：`appsessionid` 约数天失效，失效后按上文刷新会话
 - **轮询频率**：建议 ≥30s，避免触发风控
 - **自动下单有风险**：会真实占场，默认关闭，请谨慎开启
-- **合规提示**：本项目的签名算法通过逆向 App 所得，仅供学习研究，请勿用于商业或侵犯他人权益的用途
+- **合规提示**：本项目仅供个人学习与技术研究，请勿用于商业用途或干扰他人正常订场
 
 ## License
 

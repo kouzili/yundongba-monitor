@@ -319,6 +319,16 @@ def api_update_config():
     # 密钥更新后重新加载到 sign 模块
     if "secret_api" in body or "secret_ydb" in body:
         sign.reload_secrets()
+    # 保存配置时打印摘要到日志（仅"保存配置"按钮触发的字段）
+    if any(k in body for k in ["target_start", "target_end", "start_date",
+                               "end_date", "poll_interval", "auto_book"]):
+        sdb = cfg.get("stadiums", {})
+        pri = cfg.get("stadium_priority", [])
+        names = [sdb.get(str(s), s) for s in pri]
+        dates = f"{cfg['start_date']} ~ {cfg['end_date']}"
+        log(f"配置已保存: 日期 {dates} | 时段 {cfg['target_start']:02d}:00-{cfg['target_end']:02d}:00 | "
+            f"间隔 {cfg['poll_interval']}s | 自动下单 {'开' if cfg['auto_book'] else '关'} | "
+            f"场地: {', '.join(names) if names else '无'}")
     return jsonify({"ok": True})
 
 @app.route("/api/monitor/start", methods=["POST"])
