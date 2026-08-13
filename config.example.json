@@ -1,15 +1,17 @@
 {
-  "_comment": "复制为 config.json 后填入你的信息",
+  "_comment": "复制为 config.json 后填入你的信息。config.json 已被 .gitignore 忽略，不会上传。",
+  "appsessionid": "",
+  "userid": 0,
   "stadiums": {},
-  "active_stadiums": [],
+  "stadium_priority": [],
   "target_start": 18,
   "target_end": 21,
+  "start_date": "",
+  "end_date": "",
   "poll_interval": 30,
-  "schedule_signs": {},
-  "book_signs": {},
-  "stadium_dates": {},
-  "available_dates": {},
-  "user_id": 0,
-  "appsessionid": "",
-  "serverchan_key": ""
+  "auto_book": false,
+  "serverchan_key": "",
+  "cityid": 75,
+  "secret_api": "",
+  "secret_ydb": ""
 }

@@ -1,54 +1,39 @@
 #!/usr/bin/env python3
-"""韵动吧 网球场监控 - Web 管理后台"""
-import collections, json, os, re, signal, socket, subprocess, sys, threading, time
-from datetime import datetime
+"""
+韵动吧网球场监控 - Web 管理后台（本地签名版，无需抓包）
+==========================================================
+签名算法已逆向，所有 API 调用本地签名。抓包仅用于刷新会话。
+"""
+import collections, json, os, re, socket, subprocess, threading, time
+from datetime import datetime, timedelta
 from pathlib import Path
+
 import requests
 from flask import Flask, jsonify, render_template, request
+
+import sign
 
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
 FLOWS_FILE = Path.home() / "captures/yundongba.flows"
 MITMDUMP_BIN = "/opt/homebrew/bin/mitmdump"
-
-API_BASE = "https://wxapi.sports8.com.cn"
-APP_KEY, METHOD = "17992635", "iOS.v20"
-
-def get_headers():
-    """从配置读取 session, 避免硬编码泄露"""
-    cfg = load_config()
-    return {
-        "content-type": "application/json", "accept": "application/json",
-        "appversion": "5.0.140", "accept-language": "zh-CN,zh-Hans;q=0.9",
-        "user-agent": "app/1 CFNetwork/3826.400.120 Darwin/24.3.0",
-        "appsessionid": cfg.get("appsessionid", ""),
-    }
-
-def get_user_id():
-    return load_config().get("user_id", 0)
-
-STADIUM_NAMES = {
-    "1006": "四方体育中心网球馆", "153": "熊猫网球·上海知音苑",
-    "160": "达安花园网球场", "175": "绿地世纪城网球场",
-    "778": "Our Tennis·古北巨鳄球场", "1128": "唛恩网球中心（东馆）",
-    "510": "唛恩网球中心", "461": "达安乒乓桌球馆",
-    "581": "熊猫网球·华高绿地公园", "628": "亦新网球室内空调场（古北店）",
-    "747": "JOOLA&MLC匹克球体验中心", "760": "七乐网球·杨浦万达店",
-    "858": "SPINTONIC网球发球机馆", "925": "虹康绿地网球场",
-    "946": "光圈网球·HALOTENNIS", "997": "金智塔网球中心(古北店）",
-    "1109": "道格达安网球俱乐部", "477": "上海泰尼士网球中心",
-    "964": "CPK TENNIS",
-}
+ANALYZE_SCRIPT = Path.home() / "captures/analyze2.py"
 
 DEFAULT_CONFIG = {
-    "stadiums": {"1128": "唛恩网球中心（东馆）"},
-    "active_stadiums": ["1128"],
-    "dates": ["2026-08-08", "2026-08-09"],
-    "target_start": 18, "target_end": 21,
+    "appsessionid": "",
+    "userid": 0,
+    "stadiums": {},               # {id: name}
+    "stadium_priority": [],       # 有序列表，优先级从高到低
+    "target_start": 18,
+    "target_end": 21,
+    "start_date": "",
+    "end_date": "",
     "poll_interval": 30,
-    "schedule_signs": {}, "book_signs": {},
-    "stadium_dates": {}, "available_dates": {}, "user_id": 0, "appsessionid": "",
+    "auto_book": False,           # 默认只通知，不下单
     "serverchan_key": "",
+    "cityid": 75,                 # 上海
+    "secret_api": "",             # /api/ 接口签名密钥（逆向所得，存于 config.json）
+    "secret_ydb": "",             # /YDB/ 接口签名密钥
 }
 
 LOG_BUFFER = collections.deque(maxlen=500)
@@ -57,44 +42,57 @@ _log_lock = threading.Lock()
 def log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
     line = f"[{ts}] {msg}"
-    with _log_lock: LOG_BUFFER.append(line)
+    with _log_lock:
+        LOG_BUFFER.append(line)
     print(line)
+
+def tomorrow():
+    """下一个自然日（默认开始/结束日期）"""
+    return (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
 def load_config():
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE) as f: cfg = json.load(f)
+        with open(CONFIG_FILE) as f:
+            cfg = json.load(f)
         for k, v in DEFAULT_CONFIG.items():
-            if k not in cfg: cfg[k] = v
-        return cfg
-    return dict(DEFAULT_CONFIG)
+            if k not in cfg:
+                cfg[k] = v
+    else:
+        cfg = dict(DEFAULT_CONFIG)
+    # 日期默认值：下一个自然日
+    if not cfg.get("start_date"):
+        cfg["start_date"] = tomorrow()
+    if not cfg.get("end_date"):
+        cfg["end_date"] = tomorrow()
+    return cfg
 
 def save_config(cfg):
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
-
-def date_to_ts(d):
-    return int(datetime.strptime(d, "%Y-%m-%d").timestamp())
 
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close()
         return ip
-    except: return "127.0.0.1"
+    except Exception:
+        return "127.0.0.1"
 
+# ---- 抓包（仅刷新会话）----
 _mitm_proc = None
 _mitm_lock = threading.Lock()
 
 def mitm_is_alive():
-    with _mitm_lock: return _mitm_proc is not None and _mitm_proc.poll() is None
+    with _mitm_lock:
+        return _mitm_proc is not None and _mitm_proc.poll() is None
 
 def mitm_start():
     global _mitm_proc
     with _mitm_lock:
-        if _mitm_proc and _mitm_proc.poll() is None: return True, "已在运行"
-        # 清理端口 8080 上的残留 mitmdump
-        import subprocess as _sp
-        _sp.run(["pkill", "-f", "mitmdump.*8080"], capture_output=True)
+        if _mitm_proc and _mitm_proc.poll() is None:
+            return True, "已在运行"
+        import subprocess as sp
+        sp.run(["pkill", "-f", "mitmdump"], capture_output=True)
         time.sleep(1)
         try:
             FLOWS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -104,295 +102,281 @@ def mitm_start():
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(2)
             if _mitm_proc.poll() is None:
-                log("mitmdump 已启动 (8080)"); return True, "已启动"
+                log("抓包已启动 (8080)")
+                return True, "已启动"
             return False, "启动失败"
-        except Exception as e: return False, str(e)
+        except Exception as e:
+            return False, str(e)
 
 def mitm_stop():
     global _mitm_proc
     with _mitm_lock:
         if _mitm_proc:
-            try: _mitm_proc.terminate(); _mitm_proc.wait(timeout=5)
-            except: _mitm_proc.kill()
+            try:
+                _mitm_proc.terminate(); _mitm_proc.wait(timeout=5)
+            except Exception:
+                _mitm_proc.kill()
             _mitm_proc = None
-        log("mitmdump 已停止")
+        log("抓包已停止")
     return True
 
-def extract_signs():
+def extract_session():
+    """从抓包提取 appsessionid 和 userid（不提取 sign）"""
     if not FLOWS_FILE.exists() or FLOWS_FILE.stat().st_size == 0:
         return None, "抓包文件为空"
     try:
-        r = subprocess.run([MITMDUMP_BIN, "-r", str(FLOWS_FILE), "-p", "9125", "-s", str(Path.home() / "captures/analyze2.py")],
-            capture_output=True, text=True, timeout=120)
-    except subprocess.TimeoutExpired: return None, "提取超时"
-    except Exception as e: return None, str(e)
-
+        r = subprocess.run([MITMDUMP_BIN, "-r", str(FLOWS_FILE), "-p", "9125",
+                            "-s", str(ANALYZE_SCRIPT)],
+                           capture_output=True, text=True, timeout=120)
+    except Exception as e:
+        return None, str(e)
     text = r.stdout + r.stderr
-    schedule_signs, book_signs, stadiums = {}, {}, {}
+    appsessionid, userid = "", 0
+    m = re.search(r'"appsessionid"\s*:\s*"([^"]+)"', text)
+    if m:
+        appsessionid = m.group(1)
+    m = re.search(r'"userid"\s*:\s*(\d+)', text)
+    if m:
+        userid = int(m.group(1))
+    if not appsessionid:
+        return None, "未提取到 appsessionid"
+    return {"appsessionid": appsessionid, "userid": userid}, None
 
-    # 1. 从响应 body 中提取 stadiumName -> stadiumid 映射
-    name_pattern = r'"stadiumName"\s*:\s*"([^"]+)"[^}]*"stadiumid"\s*[:"\s]*(\d+)'
-    from_capture = {}
-    for m in re.finditer(name_pattern, text):
-        name, sid = m.group(1).strip(), m.group(2)
-        if name and sid not in from_capture:
-            from_capture[sid] = name
+# ---- 监控引擎 ----
+_monitor_running = False
+_monitor_thread = None
+_monitor_lock = threading.Lock()
 
-    # 2. 从请求 body 提取签名（用 analyze2 格式）
-    body_pattern = r'>> BODY:\s*\n(\{[^}]+\})\s*\n\s*\n<< RESPONSE'
-    for m in re.finditer(body_pattern, text):
-        try: body = json.loads(m.group(1))
-        except: continue
-        biz = body.get("biz",""); nonce = body.get("nonce","")
-        sign = body.get("sign",""); date_ts = body.get("date")
-        sid = body.get("stadiumid","")
-        if not sign or not date_ts: continue
-        if biz == "apiGetStadiumShedule" and sid:
-            schedule_signs.setdefault(sid,{})[date_ts] = {"nonce":nonce,"sign":sign}
-        if biz == "apiSetOrderField" and sid:
-            try:
-                ol = json.loads(body.get("orderList","[]"))
-                if ol:
-                    fid = str(ol[0].get("fieldid","?"))
-                    book_signs.setdefault(sid,{}).setdefault(date_ts,{})[fid] = {"nonce":nonce,"sign":sign}
-            except: pass
-
-    # 3. 命名: 优先用抓包提取的中文名, 其次用已���映射, 最后用编号
-    for sid in schedule_signs:
-        stadiums[sid] = from_capture.get(sid) or STADIUM_NAMES.get(sid, f"场地{sid}")
-    # 同时提取 appsessionid 和 user_id
-    session_id = ""; user_id = 0
-    sid_pattern = r'"appsessionid"\s*:\s*"([^"]+)"'
-    sm = re.search(sid_pattern, text)
-    if sm: session_id = sm.group(1)
-    uid_pattern = r'"userid"\s*:\s*(\d+)'
-    um = re.search(uid_pattern, text)
-    if um: user_id = int(um.group(1))
-
-    if not schedule_signs: return None, "未提取到任何签名"
-    return {"stadiums":stadiums,"schedule_signs":schedule_signs,"book_signs":book_signs,"appsessionid":session_id,"user_id":user_id}, None
-
-def call_api(endpoint, extra, sign_info):
-    body = {"wCommon":None,"biz":endpoint.rsplit("/",1)[-1],"nonce":sign_info["nonce"],
-            "method":METHOD,"ydbsp_app_key":APP_KEY,"sign":sign_info["sign"],**extra}
-    try:
-        r = requests.post(f"{API_BASE}/{endpoint}", json=body, headers=get_headers(), timeout=15)
-        if r.status_code == 200:
-            d = r.json()
-            if d.get("returnCode")=="0": return d["returnData"]
-            return {"error": d.get("returnMsg",f"code={d.get('returnCode')}")}
-        return {"error": f"HTTP {r.status_code}"}
-    except Exception as e: return {"error":str(e)}
-
-def poll_stadium(sid, date_ts, start_h, end_h, signs):
-    si = signs.get(str(sid),{}).get(date_ts) or signs.get(str(sid),{}).get(str(date_ts))
-    if not si: return [],[],"缺签名"
-    data = call_api("api/ydb/stadium/apiGetStadiumShedule",
-                    {"stadiumid":str(sid),"date":date_ts,"userid":get_user_id()}, si)
-    if "error" in data: return [],[],data["error"]
-    target, all_slots = [],[]
-    for f in data.get("fieldList",[]):
-        for s in f.get("shedule",[]):
-            if s.get("status")!="0": continue
-            tp = s.get("timePoint")
-            if tp is None: continue
-            slot = {"field":f["name"],"fieldid":s["fieldid"],
-                    "time":f"{tp:02d}:00","timePoint":tp,"price":s["realPrice"]}
-            all_slots.append(slot)
-            if start_h <= tp < end_h: target.append(slot)
-    return target, all_slots, None
-
-def find_nearest(all_slots, start, end):
-    if not all_slots: return None
-    best, best_d = None, float("inf")
-    for s in all_slots:
-        tp = s["timePoint"]
-        d = start-tp if tp<start else (tp-(end-1) if tp>=end else 0)
-        if d>0 and d<best_d: best_d, best = d, s
-    return best
-
-def try_book(sid, date_ts, slot, signs):
-    sd = signs.get(str(sid),{}); bi = (sd.get(date_ts) or sd.get(str(date_ts)) or {}).get(str(slot["fieldid"]))
-    if not bi: return None, "无签名"
-    tp = int(slot["time"].split(":")[0])
-    ol = json.dumps([{"cheapFlag":0,"name":slot["field"],"timePoint":tp,
-        "discountType":1,"expense":480,"status":"0","fieldid":slot["fieldid"],
-        "realPrice":400,"start":slot["time"],"end":f"{tp+2:02d}:00",
-        "startTime":tp,"endTime":tp+2}])
-    data = call_api("api/ydb/stadium/apiSetOrderField",
-        {"userid":get_user_id(),"stadiumid":str(sid),"date":date_ts,"orderList":ol}, bi)
-    if "error" in data: return None, data["error"]
-    return data.get("orderuid"), f"¥{data.get('realExpense','?')}"
+def gen_dates(start_date, end_date):
+    """生成日期字符串列表（含首尾）"""
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    if end < start:
+        end = start
+    days = (end - start).days + 1
+    return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
 
 def send_notify(title, content, sckey):
-    if not sckey: return
-    try: requests.post(f"https://sctapi.ftqq.com/{sckey}.send",data={"title":title,"desp":content},timeout=10)
-    except: pass
-
-_monitor_running, _monitor_thread = False, None
-_monitor_lock = threading.Lock()
+    if not sckey:
+        return
+    try:
+        requests.post(f"https://sctapi.ftqq.com/{sckey}.send",
+                      data={"title": title, "desp": content}, timeout=10)
+    except Exception:
+        pass
 
 def monitor_loop():
     global _monitor_running
     cfg = load_config()
-    sids = cfg["active_stadiums"]; dates_map = cfg.get("stadium_dates", {})
+    appid = cfg.get("appsessionid", "")
+    uid = cfg.get("userid", 0)
+    priority = cfg.get("stadium_priority", [])
+    stadiums = cfg.get("stadiums", {})
     sh, eh = cfg["target_start"], cfg["target_end"]
+    dates = gen_dates(cfg["start_date"], cfg["end_date"])
     interval = cfg["poll_interval"]
-    sign_db = cfg.get("schedule_signs",{}); book_db = cfg.get("book_signs",{})
-    stadium_db = cfg["stadiums"]; sckey = cfg.get("serverchan_key","")
+    auto_book = cfg.get("auto_book", False)
+    sckey = cfg.get("serverchan_key", "")
     round_num = 0
-    log(f"监控启动: {len(sids)}场地, {sum(len(v) for v in dates_map.values() if v)}日期, {sh:02d}:00-{eh:02d}:00")
+
+    log(f"监控启动: {len(priority)} 场地, {len(dates)} 天, {sh:02d}:00-{eh:02d}:00, 自动下单={'开' if auto_book else '关'}")
+
     while _monitor_running:
         round_num += 1
         now = datetime.now().strftime("%H:%M:%S")
         log(f"--- 第{round_num}轮 {now} ---")
-        for sid in sids:
-            name = stadium_db.get(str(sid),f"场地{sid}")
-            stadium_dates = dates_map.get(str(sid), cfg.get("dates",[]))
-            for d in stadium_dates:
-                ts = date_to_ts(d)
-                target, all_slots, err = poll_stadium(sid, ts, sh, eh, sign_db)
-                if err: log(f"  {name} {d} ❌ {err}"); continue
-                if target:
-                    log(f"  {name} {d} 🎾 空场{len(target)}个:")
-                    lines = []
-                    for s in target:
-                        info = f"{s['field']} {s['time']} ¥{s['price']}"
-                        lines.append(info)
-                        oid, bmsg = try_book(sid, ts, s, book_db)
-                        tag = f"🤖已抢[{oid}]{bmsg}" if oid else "✋需手动"
-                        log(f"     🟢 {info} → {tag}")
-                    if lines: send_notify(f"🎾 {name} {d} 有空场!","\n".join(lines),sckey)
+
+        for d in dates:
+            date_ts = sign.date_to_ts(d)
+            hit = None  # 优先级最高的空场场地
+            for sid in priority:
+                name = stadiums.get(str(sid), f"场地{sid}")
+                data = sign.get_schedule(sid, date_ts, uid, appid)
+                if isinstance(data, dict) and "error" in data:
+                    if "签名" in data["error"] or "登录" in data["error"] or "session" in data["error"].lower():
+                        log(f"  {name} {d} ❌ 会话失效: {data['error']}")
+                    else:
+                        log(f"  {name} {d} ❌ {data['error']}")
+                    continue
+                parsed = sign.parse_schedule(data, sh, eh)
+                if parsed.get("target"):
+                    hit = (sid, name, parsed)
+                    break  # 找到优先级最高的空场，停止
+                elif parsed.get("nearest"):
+                    n = parsed["nearest"]
+                    log(f"  {name} {d} ⚪ 全满 | 最近 {n['field']} {n['time']} ¥{n['price']}")
                 else:
-                    nearest = find_nearest(all_slots, sh, eh)
-                    if nearest:
-                        hint = f"距目标{sh-nearest['timePoint']}h" if nearest["timePoint"]<sh else f"距目标{nearest['timePoint']-(eh-1)}h"
-                        log(f"  {name} {d} ⚪ 全满 | 最近→{nearest['field']} {nearest['time']} ¥{nearest['price']}({hint})")
-                    else: log(f"  {name} {d} ⚪ 全天无空场")
+                    log(f"  {name} {d} ⚪ 全天无空场")
+
+            if hit:
+                sid, name, parsed = hit
+                slots = parsed["target"]
+                log(f"  🎾 {name} {d} 空场 {len(slots)} 个:")
+                lines = []
+                for s in slots:
+                    info = f"{s['field']} {s['time']} ¥{s['price']}"
+                    lines.append(info)
+                    log(f"     🟢 {info}")
+                if auto_book:
+                    # 下单第一个空场
+                    s0 = slots[0]
+                    r = sign.book_field(sid, date_ts, uid, appid, s0["fieldid"], s0["timePoint"], 1)
+                    if isinstance(r, dict) and "error" in r:
+                        log(f"     ❌ 下单失败: {r['error']}")
+                        send_notify(f"🎾 {name} {d} 有空场!", "\n".join(lines) + f"\n\n下单失败: {r['error']}", sckey)
+                    else:
+                        log(f"     🤖 已下单 [{r.get('orderuid')}] ¥{r.get('realExpense')}")
+                        send_notify(f"🎾 已抢到 {name} {d}!", "\n".join(lines) + f"\n\n订单: {r.get('orderuid')}", sckey)
+                else:
+                    send_notify(f"🎾 {name} {d} 有空场!", "\n".join(lines), sckey)
+
         time.sleep(interval)
 
 def monitor_start():
     global _monitor_running, _monitor_thread
     with _monitor_lock:
-        if _monitor_running: return False,"监控已在运行"
+        if _monitor_running:
+            return False, "监控已在运行"
         _monitor_running = True
         _monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-        _monitor_thread.start(); return True,"监控已启动"
+        _monitor_thread.start()
+        return True, "监控已启动"
 
 def monitor_stop():
     global _monitor_running
-    with _monitor_lock: _monitor_running = False; log("监控已停止")
-    return True,"监控已停止"
+    with _monitor_lock:
+        _monitor_running = False
+        log("监控已停止")
+    return True, "监控已停止"
 
+# ---- Flask ----
 import logging
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 app = Flask(__name__)
 
 @app.route("/")
-def index(): return render_template("index.html")
+def index():
+    return render_template("index.html")
 
 @app.route("/api/status")
 def api_status():
-    cfg = load_config()
-    return jsonify({"mitm_alive":mitm_is_alive(),"monitor_running":_monitor_running,
-        "local_ip":get_local_ip(),"proxy_port":8080,"config":cfg})
+    return jsonify({
+        "mitm_alive": mitm_is_alive(),
+        "monitor_running": _monitor_running,
+        "local_ip": get_local_ip(),
+        "proxy_port": 8080,
+        "config": load_config(),
+    })
 
 @app.route("/api/capture/start", methods=["POST"])
 def api_capture_start():
-    ok,msg = mitm_start()
-    return jsonify({"ok":ok,"msg":msg,"ip":get_local_ip(),"port":8080})
+    ok, msg = mitm_start()
+    return jsonify({"ok": ok, "msg": msg, "ip": get_local_ip(), "port": 8080})
 
 @app.route("/api/capture/stop", methods=["POST"])
-def api_capture_stop(): mitm_stop(); return jsonify({"ok":True})
+def api_capture_stop():
+    mitm_stop()
+    return jsonify({"ok": True})
 
-@app.route("/api/extract", methods=["POST"])
-def api_extract():
-    data,err = extract_signs()
-    if err: return jsonify({"ok":False,"msg":err})
+@app.route("/api/capture/extract", methods=["POST"])
+def api_capture_extract():
+    data, err = extract_session()
+    if err:
+        return jsonify({"ok": False, "msg": err})
     cfg = load_config()
-    for sid, name in data["stadiums"].items():
-        cfg["stadiums"][sid] = name  # 覆盖为最新中文名
-    for sid, dates in data["schedule_signs"].items():
-        cfg["schedule_signs"].setdefault(sid,{}).update(dates)
-    for sid, dates in data["book_signs"].items():
-        cfg["book_signs"].setdefault(sid,{}).update(dates)
-    # 从签名中提取日期，自动填入 available_dates 和 stadium_dates（默认全选）
-    for sid, signs in cfg["schedule_signs"].items():
-        date_list = sorted([datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d") for ts in signs])
-        cfg["available_dates"][sid] = date_list
-        if sid not in cfg["stadium_dates"]:
-            cfg["stadium_dates"][sid] = list(date_list)  # 默认全选
-    # 同步存入 appsessionid 和 user_id
-    if data.get("appsessionid"): cfg["appsessionid"] = data["appsessionid"]
-    if data.get("user_id"): cfg["user_id"] = data["user_id"]
-    # 新场馆不自动激活（用户手动在页面勾选）
+    cfg["appsessionid"] = data["appsessionid"]
+    cfg["userid"] = data["userid"]
     save_config(cfg)
-    log(f"签名提取完成: {len(data['stadiums'])} 个场地")
-    return jsonify({"ok":True,"stadiums":data["stadiums"]})
+    log(f"会话已刷新: appsessionid={data['appsessionid'][:8]}... userid={data['userid']}")
+    return jsonify({"ok": True, "appsessionid": data["appsessionid"], "userid": data["userid"]})
+
+@app.route("/api/search", methods=["POST"])
+def api_search():
+    body = request.get_json()
+    kw = body.get("keyword", "")
+    cfg = load_config()
+    appid = cfg.get("appsessionid", "")
+    if not kw or not appid:
+        return jsonify({"ok": False, "results": []})
+    results = sign.search_stadium(kw, cfg.get("cityid", 75), appid)
+    return jsonify({"ok": True, "results": results})
 
 @app.route("/api/config", methods=["GET"])
-def api_get_config(): return jsonify(load_config())
+def api_get_config():
+    return jsonify(load_config())
 
 @app.route("/api/config", methods=["POST"])
 def api_update_config():
-    cfg = load_config(); body = request.get_json()
-    accepted = ["active_stadiums","dates","target_start","target_end","poll_interval","serverchan_key","stadium_dates","stadiums","schedule_signs","book_signs","available_dates"]
-    for key in accepted:
-        if key in body: cfg[key] = body[key]
+    cfg = load_config()
+    body = request.get_json()
+    for key in ["target_start", "target_end", "start_date", "end_date",
+                "poll_interval", "auto_book", "serverchan_key", "appsessionid",
+                "userid", "cityid", "stadiums", "stadium_priority",
+                "secret_api", "secret_ydb"]:
+        if key in body:
+            cfg[key] = body[key]
     save_config(cfg)
-    active = body.get("active_stadiums", cfg.get("active_stadiums", []))
-    sdb = cfg.get("stadiums", {})
-    sdates = cfg.get("stadium_dates", {})
-    items = []
-    for sid in active:
-        n = sdb.get(str(sid), f"#{sid}")
-        ds = sdates.get(str(sid), [])
-        ds_short = [d[5:] for d in ds]
-        items.append(f"{n}({','.join(ds_short) if ds_short else '0天'})")
-    log(f"活跃场地: {' | '.join(items) if items else '无'}")
-    return jsonify({"ok":True})
+    # 密钥更新后重新加载到 sign 模块
+    if "secret_api" in body or "secret_ydb" in body:
+        sign.reload_secrets()
+    return jsonify({"ok": True})
 
 @app.route("/api/monitor/start", methods=["POST"])
 def api_monitor_start():
-    ok,msg = monitor_start(); return jsonify({"ok":ok,"msg":msg})
+    ok, msg = monitor_start()
+    return jsonify({"ok": ok, "msg": msg})
 
 @app.route("/api/monitor/stop", methods=["POST"])
-def api_monitor_stop(): monitor_stop(); return jsonify({"ok":True})
+def api_monitor_stop():
+    monitor_stop()
+    return jsonify({"ok": True})
 
 @app.route("/api/logs")
 def api_logs():
-    with _log_lock: lines = list(LOG_BUFFER)
-    return jsonify({"logs":lines})
+    with _log_lock:
+        return jsonify({"logs": list(LOG_BUFFER)})
 
 @app.route("/api/logs/clear", methods=["POST"])
 def api_logs_clear():
-    with _log_lock: LOG_BUFFER.clear(); return jsonify({"ok":True})
+    with _log_lock:
+        LOG_BUFFER.clear()
+    return jsonify({"ok": True})
 
 @app.route("/api/test", methods=["POST"])
 def api_test():
     cfg = load_config()
-    sids = cfg["active_stadiums"]; dates_map = cfg.get("stadium_dates", {}); sh,eh = cfg["target_start"],cfg["target_end"]
-    sign_db = cfg.get("schedule_signs",{}); stadium_db = cfg["stadiums"]
+    appid = cfg.get("appsessionid", "")
+    uid = cfg.get("userid", 0)
+    priority = cfg.get("stadium_priority", [])
+    stadiums = cfg.get("stadiums", {})
+    sh, eh = cfg["target_start"], cfg["target_end"]
+    dates = gen_dates(cfg["start_date"], cfg["end_date"])
     results = []
-    for sid in sids:
-        name = stadium_db.get(str(sid),f"场地{sid}")
-        stadium_dates = dates_map.get(str(sid), cfg.get("dates",[]))
-        for d in stadium_dates:
-            ts = date_to_ts(d)
-            target,all_slots,err = poll_stadium(sid,ts,sh,eh,sign_db)
-            if err: results.append({"stadium":name,"date":d,"error":err}); continue
-            nearest = None if target else find_nearest(all_slots,sh,eh)
-            results.append({"stadium":name,"date":d,"slots":target,"total_available":len(all_slots),"nearest":nearest})
-    return jsonify({"results":results})
+    for d in dates:
+        date_ts = sign.date_to_ts(d)
+        for sid in priority:
+            name = stadiums.get(str(sid), f"场地{sid}")
+            data = sign.get_schedule(sid, date_ts, uid, appid)
+            if isinstance(data, dict) and "error" in data:
+                results.append({"stadium": name, "date": d, "error": data["error"]})
+                continue
+            parsed = sign.parse_schedule(data, sh, eh)
+            results.append({"stadium": name, "date": d,
+                            "slots": parsed.get("target", []),
+                            "nearest": parsed.get("nearest")})
+    return jsonify({"results": results})
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(); p.add_argument("--port", type=int, default=5100)
+    p = argparse.ArgumentParser()
+    p.add_argument("--port", type=int, default=5100)
     args = p.parse_args()
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not CONFIG_FILE.exists(): save_config(DEFAULT_CONFIG)
-    (BASE_DIR/"templates").mkdir(exist_ok=True)
+    if not CONFIG_FILE.exists():
+        save_config(DEFAULT_CONFIG)
+    (BASE_DIR / "templates").mkdir(exist_ok=True)
     log(f"管理后台: http://localhost:{args.port}")
     app.run(host="0.0.0.0", port=args.port, debug=False)
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

@@ -10,72 +10,101 @@ body{font:13px/1.6 -apple-system,sans-serif;background:#f5f5f5;color:#333}
 .header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
 .header h1{font-size:16px;font-weight:500}
 .status-bar{display:flex;gap:16px;font-size:12px}
-.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 .on{background:#4caf50}.off{background:#e53935}
-.container{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
+.container{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:370px 1fr;gap:16px}
 .card{background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:12px}
 .card h3{font-size:13px;font-weight:500;margin-bottom:8px;color:#555;border-bottom:1px solid #eee;padding-bottom:6px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
 label{font-size:12px;color:#666;min-width:50px}
-input[type=number]{padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:55px}
+input[type=text],input[type=number],input[type=date]{padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px}
+input[type=number]{width:55px}
 .btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:500}
-.btn:hover{opacity:.9}
+.btn:hover{opacity:.88}
 .btn-primary{background:#1a73e8;color:#fff}
 .btn-success{background:#0d904f;color:#fff}
 .btn-danger{background:#e53935;color:#fff}
 .btn-gray{background:#666;color:#fff;padding:4px 10px;font-size:11px}
-.chip{display:inline-block;padding:3px 9px;border-radius:10px;font-size:11px;margin:2px;user-select:none;transition:.15s}
-.chip-sel{background:#1a73e8;color:#fff;cursor:pointer}
-.chip-no{background:#e0e0e0;color:#555;cursor:pointer;border:1px solid #ccc}
-.chip-no:hover{background:#c8c8c8}
-.chip-dis{background:#f5f5f5;color:#bbb;cursor:default}
-.stadium-block{margin-bottom:10px;padding:8px;background:#fafafa;border-radius:6px}
-.stadium-name{font-size:12px;font-weight:500;margin-bottom:4px;display:flex;justify-content:space-between}
-#logPanel{height:440px;overflow-y:auto;background:#1e1e1e;color:#d4d4d4;font:12px Menlo,monospace;padding:10px;border-radius:4px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
-.log-find{color:#4caf50}.log-err{color:#e53935}.log-warn{color:#ff9800}
+.hint{font-size:11px;color:#999;margin-top:4px}
 .proxy-box{background:#e8f5e9;border:1px solid #4caf50;border-radius:6px;padding:10px;margin:8px 0;font-size:12px}
 .proxy-box code{background:#fff;padding:2px 6px;border-radius:3px;font-size:14px;font-weight:500}
-.hint{font-size:11px;color:#999;margin-top:4px}
+/* 优先级列表拖拽 */
+.pri-item{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f7f7f7;border:1px solid #e5e5e5;border-radius:5px;margin-bottom:5px;cursor:grab}
+.pri-item.dragging{opacity:.4}
+.pri-item .grip{cursor:grab;color:#bbb}
+.pri-item .name{flex:1}
+.pri-item .del{color:#e53935;cursor:pointer;font-size:14px}
+.pri-num{background:#1a73e8;color:#fff;border-radius:50%;width:18px;height:18px;text-align:center;line-height:18px;font-size:11px;flex-shrink:0}
+/* 搜索结果 */
+.search-result{padding:5px 8px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between}
+.search-result:hover{background:#f0f6ff}
+.search-result .add{color:#1a73e8}
+#logPanel{height:460px;overflow-y:auto;background:#1e1e1e;color:#d4d4d4;font:12px Menlo,monospace;padding:10px;border-radius:4px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+.log-find{color:#4caf50}.log-err{color:#e53935}.log-warn{color:#ff9800}
 .result-item{font-size:12px;padding:4px 0;border-bottom:1px solid #f0f0f0}
 .empty{color:#999;font-style:italic}
+.switch{display:flex;align-items:center;gap:6px;font-size:12px}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>🎾 韵动吧 · 网球场监控</h1>
   <div class="status-bar">
-    <span>抓包 <span class="status-dot" id="mdot"></span> <span id="mtxt">-</span></span>
-    <span>监控 <span class="status-dot" id="odot"></span> <span id="otxt">停止</span></span>
+    <span>抓包 <span class="dot" id="mdot"></span><span id="mtxt">-</span></span>
+    <span>监控 <span class="dot" id="odot"></span><span id="otxt">停止</span></span>
   </div>
 </div>
 
 <div class="container">
 <div>
+  <!-- 抓包（刷新会话） -->
   <div class="card">
-    <h3>📡 抓包控制</h3>
+    <h3>📡 刷新会话</h3>
     <div class="row">
-      <button class="btn btn-success" onclick="captureStart()" style="flex:1">▶ 启动抓包</button>
-      <button class="btn btn-danger" onclick="captureStop()" style="flex:1">⏹ 停止</button>
+      <button class="btn btn-success" onclick="captureStart()">▶ 启动抓包</button>
+      <button class="btn btn-danger" onclick="captureStop()">⏹ 停止</button>
     </div>
     <div id="proxyInfo" class="hint"></div>
     <div class="row" style="margin-top:8px">
-      <button class="btn btn-primary" onclick="extractSigns()" style="width:100%">🔍 提取签名 & 同步</button>
+      <button class="btn btn-primary" onclick="extractSession()" style="width:100%">🔑 提取会话 (appsessionid)</button>
     </div>
     <div id="extractResult" class="hint"></div>
+    <div class="hint" style="margin-top:6px">appsessionid: <span id="sidDisplay">-</span></div>
   </div>
 
+  <!-- 场地配置 -->
   <div class="card">
-    <h3>📍 场地 & 日期配置</h3>
-    <div id="stadiumConfig"></div>
+    <h3>📍 场地（可拖拽排序优先级）</h3>
+    <div class="row">
+      <input type="text" id="searchKw" placeholder="搜索场地名，如：古北" style="flex:1">
+      <button class="btn btn-primary" onclick="searchStadium()">搜索</button>
+    </div>
+    <div id="searchResults"></div>
+    <div id="priList" style="margin-top:8px"></div>
+    <div class="hint">拖拽调整优先级，排前面的优先通知/下单</div>
   </div>
 
+  <!-- 日期 & 时段 & 控制 -->
   <div class="card">
-    <h3>🕐 时段 & 控制</h3>
+    <h3>📅 日期 & 时段 & 控制</h3>
+    <div class="row">
+      <label>开始</label>
+      <input type="date" id="startDate">
+      <label>结束</label>
+      <input type="date" id="endDate">
+    </div>
     <div class="row">
       <label>时段</label>
-      <input type="number" id="sh" min="8" max="23"> :00 - <input type="number" id="eh" min="8" max="23"> :00
+      <input type="number" id="sh" min="8" max="23"> :00 -
+      <input type="number" id="eh" min="8" max="23"> :00
+    </div>
+    <div class="row">
       <label>间隔</label>
-      <input type="number" id="iv" min="10" max="300">s
+      <input type="number" id="iv" min="10" max="300"> 秒
+    </div>
+    <div class="row switch">
+      <input type="checkbox" id="autoBook">
+      <label style="min-width:0">自动下单（默认只微信通知，勾选后自动抢场）</label>
     </div>
     <div class="row">
       <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
@@ -102,6 +131,8 @@ input[type=number]{padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-
 
 <script>
 let cfg = {}, pollTimer;
+let dragIdx = null;
+let cfgLoaded = false;
 
 (async function init(){
   await refreshStatus();
@@ -112,142 +143,137 @@ async function api(u,m,b){const o={method:m,headers:{'Content-Type':'application
 
 async function refreshStatus(){
   const s = await api('/api/status');
-  document.getElementById('mdot').className = 'status-dot '+(s.mitm_alive?'on':'off');
-  document.getElementById('mtxt').textContent = s.mitm_alive?'运行中':'已停止';
-  document.getElementById('odot').className = 'status-dot '+(s.monitor_running?'on':'off');
+  document.getElementById('mdot').className = 'dot '+(s.mitm_alive?'on':'off');
+  document.getElementById('mtxt').textContent = s.mitm_alive?'运行中':'停止';
+  document.getElementById('odot').className = 'dot '+(s.monitor_running?'on':'off');
   document.getElementById('otxt').textContent = s.monitor_running?'运行中':'停止';
   cfg = s.config;
-  // 只在值不同于配置时才更新，避免覆盖用户正在编辑的内容
-  const shEl = document.getElementById('sh'), ehEl = document.getElementById('eh'), ivEl = document.getElementById('iv');
-  if (document.activeElement !== shEl && parseInt(shEl.value) !== (cfg.target_start||18)) shEl.value = cfg.target_start||18;
-  if (document.activeElement !== ehEl && parseInt(ehEl.value) !== (cfg.target_end||21)) ehEl.value = cfg.target_end||21;
-  if (document.activeElement !== ivEl && parseInt(ivEl.value) !== (cfg.poll_interval||30)) ivEl.value = cfg.poll_interval||30;
-  renderStadiums();
+  document.getElementById('sidDisplay').textContent = (cfg.appsessionid||'') ? cfg.appsessionid.slice(0,8)+'...' : '未设置';
+  // 只在首次加载时填充输入框，避免定时刷新覆盖用户未保存的修改
+  if(!cfgLoaded){
+    document.getElementById('startDate').value = cfg.start_date||'';
+    document.getElementById('endDate').value = cfg.end_date||'';
+    document.getElementById('sh').value = cfg.target_start||18;
+    document.getElementById('eh').value = cfg.target_end||21;
+    document.getElementById('iv').value = cfg.poll_interval||30;
+    document.getElementById('autoBook').checked = !!cfg.auto_book;
+    cfgLoaded = true;
+  }
+  renderPriority();
 }
 
-function renderStadiums(){
-  const div = document.getElementById('stadiumConfig');
+function renderPriority(){
+  const div = document.getElementById('priList');
+  const priority = cfg.stadium_priority||[];
   const stadiums = cfg.stadiums||{};
-  const available = cfg.available_dates||{};
-  const selected = cfg.stadium_dates||{};
-  const active = cfg.active_stadiums||[];
-  if(!Object.keys(stadiums).length){div.innerHTML='<span class="empty">暂无场地，请先提取签名</span>';return}
-  div.innerHTML = Object.entries(stadiums).map(([id,name])=>{
-    const isActive = active.includes(id);
-    const dates = available[id]||[];
-    const selDates = selected[id]||[];
-    const dateChips = dates.map(d=>{
-      const isSel = selDates.includes(d);
-      const cls = isSel ? 'chip-sel' : 'chip-no';
-      const click = isActive ? `toggleDate('${id}','${d}')` : '';
-      return `<span class="chip ${cls}" onclick="${click}" oncontextmenu="event.preventDefault();removeDate('${id}','${d}')" title="${isActive?'左键切换 | 右键删除':'先激活球场再操作'}" style="cursor:${isActive?'pointer':'default'}">${d.slice(5)}</span>`;
-    }).join('');
-    return `<div class="stadium-block">
-      <div class="stadium-name">
-        <span class="chip ${isActive?'chip-sel':'chip-no'}" 
-          onclick="toggleStadium('${id}')"
-          oncontextmenu="event.preventDefault();removeStadium('${id}')"
-          title="左键激活/取消 | 右键删除场地">${isActive?'✓':'+'}&nbsp;${name}</span>
-        <span style="font-size:10px;color:#999">ID:${id}</span>
-      </div>
-      <div style="margin-top:4px">${dateChips||'<span class="empty">无日期数据</span>'}</div>
+  if(!priority.length){div.innerHTML='<span class="empty">暂无场地，搜索添加</span>';return}
+  div.innerHTML = priority.map((sid,idx)=>{
+    const name = stadiums[sid]||sid;
+    return `<div class="pri-item" draggable="true" ondragstart="dragStart(event,${idx})" ondragover="event.preventDefault()" ondrop="dropItem(event,${idx})">
+      <span class="pri-num">${idx+1}</span>
+      <span class="name">${name}</span>
+      <span style="color:#999;font-size:10px">ID:${sid}</span>
+      <span class="del" onclick="removeStadium('${sid}')" title="移除">✕</span>
     </div>`;
   }).join('');
 }
 
-async function toggleStadium(sid){
-  const active = [...(cfg.active_stadiums||[])];
-  const idx = active.indexOf(sid);
-  if(idx>=0) { active.splice(idx,1); cfg.active_stadiums = active; renderStadiums() }
-  else { active.push(sid); cfg.active_stadiums = active; renderStadiums() }
-  await api('/api/config','POST',{active_stadiums:active});
+function dragStart(e, idx){ dragIdx = idx; e.target.classList.add('dragging'); }
+function dropItem(e, idx){
+  e.preventDefault();
+  const priority = [...(cfg.stadium_priority||[])];
+  const [moved] = priority.splice(dragIdx, 1);
+  priority.splice(idx, 0, moved);
+  cfg.stadium_priority = priority;
+  renderPriority();
+  api('/api/config','POST',{stadium_priority:priority});
+}
+
+async function searchStadium(){
+  const kw = document.getElementById('searchKw').value.trim();
+  if(!kw) return;
+  const r = await api('/api/search','POST',{keyword:kw});
+  const div = document.getElementById('searchResults');
+  if(!r.results || !r.results.length){ div.innerHTML='<div class="empty">无结果</div>'; return; }
+  div.innerHTML = r.results.map(s=>{
+    return `<div class="search-result" onclick="addStadium('${s.stadiumid}','${s.name.replace(/'/g,"")}')">
+      <span>${s.name}</span><span class="add">+ 添加</span>
+    </div>`;
+  }).join('');
+}
+
+async function addStadium(sid, name){
+  const stadiums = {...(cfg.stadiums||{})};
+  stadiums[sid] = name;
+  const priority = [...(cfg.stadium_priority||[])];
+  if(!priority.includes(sid)) priority.push(sid);
+  cfg.stadiums = stadiums; cfg.stadium_priority = priority;
+  await api('/api/config','POST',{stadiums, stadium_priority:priority});
+  document.getElementById('searchResults').innerHTML='';
+  document.getElementById('searchKw').value='';
+  await refreshStatus();
 }
 
 async function removeStadium(sid){
-  const name = (cfg.stadiums||{})[sid] || sid;
-  if(!confirm(`确认删除场地「${name}」？（不可恢复）`)) return;
-  delete cfg.stadiums[sid];
-  cfg.active_stadiums = (cfg.active_stadiums||[]).filter(s=>s!==sid);
-  delete (cfg.schedule_signs||{})[sid];
-  delete (cfg.book_signs||{})[sid];
-  delete (cfg.available_dates||{})[sid];
-  delete (cfg.stadium_dates||{})[sid];
-  renderStadiums();
-  await api('/api/config','POST',{
-    stadiums: cfg.stadiums, active_stadiums: cfg.active_stadiums,
-    schedule_signs: cfg.schedule_signs, book_signs: cfg.book_signs,
-    available_dates: cfg.available_dates, stadium_dates: cfg.stadium_dates,
-  });
-}
-
-async function removeDate(sid, date){
-  const name = (cfg.stadiums||{})[sid] || sid;
-  if(!confirm(`确认从「${name}」删除日期 ${date}？`)) return;
-  if(cfg.available_dates&&cfg.available_dates[sid])
-    cfg.available_dates[sid] = cfg.available_dates[sid].filter(d=>d!==date);
-  if(cfg.stadium_dates&&cfg.stadium_dates[sid])
-    cfg.stadium_dates[sid] = (cfg.stadium_dates[sid]||[]).filter(d=>d!==date);
-  renderStadiums();
-  await api('/api/config','POST',{
-    available_dates: cfg.available_dates, stadium_dates: cfg.stadium_dates,
-  });
-}
-
-async function toggleDate(sid, date){
-  const sel = JSON.parse(JSON.stringify(cfg.stadium_dates||{}));
-  const cur = [...(sel[sid]||[])];
-  const idx = cur.indexOf(date);
-  const msg = idx>=0 ? `取消 ${date}` : `选中 ${date}`;
-  if(idx>=0) cur.splice(idx,1); else cur.push(date);
-  sel[sid] = cur.sort();
-  cfg.stadium_dates = sel;
-  renderStadiums();  // 立即刷新 UI
-  await api('/api/config','POST',{stadium_dates:sel});
-}
-
-async function saveConfig(){
-  await api('/api/config','POST',{
-    target_start:parseInt(document.getElementById('sh').value),
-    target_end:parseInt(document.getElementById('eh').value),
-    poll_interval:parseInt(document.getElementById('iv').value)
-  });
+  const priority = (cfg.stadium_priority||[]).filter(x=>x!==sid);
+  cfg.stadium_priority = priority;
+  await api('/api/config','POST',{stadium_priority:priority});
   await refreshStatus();
 }
 
 async function captureStart(){
   const r = await api('/api/capture/start','POST');
   if(r.ok) document.getElementById('proxyInfo').innerHTML=
-    '<div class="proxy-box">📱 手机代理<br>服务器: <code>'+r.ip+'</code> 端口: <code>8080</code><br>WiFi设置→HTTP代理→手动<br>证书已装不用重装</div>';
+    '<div class="proxy-box">📱 手机代理<br>服务器: <code>'+r.ip+'</code> 端口: <code>8080</code><br>WiFi→HTTP代理→手动<br>配好后打开韵动吧小程序逛一下</div>';
   else alert(r.msg);
 }
 async function captureStop(){await api('/api/capture/stop','POST');document.getElementById('proxyInfo').innerHTML='<span class="empty">已停止</span>'}
-async function extractSigns(){
+async function extractSession(){
   const b = event.target; b.disabled=true; b.textContent='提取中...';
-  try{const r = await api('/api/extract','POST');
-    document.getElementById('extractResult').innerHTML=r.ok
-      ?'<span style="color:#4caf50">✅ 提取成功</span>':'<span style="color:#e53935">❌ '+r.msg+'</span>';
-    await refreshStatus();}catch(e){alert(e)}
-  b.disabled=false; b.textContent='🔍 提取签名 & 同步';
+  const r = await api('/api/capture/extract','POST');
+  if(r.ok){
+    document.getElementById('extractResult').innerHTML='<span style="color:#4caf50">✅ 会话已刷新</span>';
+  }else{
+    document.getElementById('extractResult').innerHTML='<span style="color:#e53935">❌ '+r.msg+'</span>';
+  }
+  b.disabled=false; b.textContent='🔑 提取会话 (appsessionid)';
+  await refreshStatus();
 }
+
+async function saveConfig(){
+  await api('/api/config','POST',{
+    start_date: document.getElementById('startDate').value,
+    end_date: document.getElementById('endDate').value,
+    target_start: parseInt(document.getElementById('sh').value),
+    target_end: parseInt(document.getElementById('eh').value),
+    poll_interval: parseInt(document.getElementById('iv').value),
+    auto_book: document.getElementById('autoBook').checked,
+  });
+  await refreshStatus();
+}
+
 async function monitorStart(){await api('/api/monitor/start','POST');await refreshStatus()}
 async function monitorStop(){await api('/api/monitor/stop','POST');await refreshStatus()}
+
 async function testQuery(){
   const b = event.target; b.disabled=true; b.textContent='查询中...';
-  try{const r = await api('/api/test','POST');const d=document.getElementById('testResult');
-    if(!r.results||!r.results.length)d.innerHTML='<span class="empty">无结果</span>';
-    else d.innerHTML=r.results.map(i=>{
-      if(i.error)return`<div class="result-item">${i.stadium} ${i.date} ❌ ${i.error}</div>`;
-      if(i.slots&&i.slots.length)return`<div class="result-item">🎾 ${i.stadium} ${i.date}: ${i.slots.map(s=>s.field+' '+s.time+' ¥'+s.price).join(', ')}</div>`;
-      if(i.nearest)return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全满 | 最近 ${i.nearest.field} ${i.nearest.time} ¥${i.nearest.price}</div>`;
-      return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全天无 (共${i.total_available}可用)</div>`;
-    }).join('')}catch(e){}
+  const r = await api('/api/test','POST');
+  const d = document.getElementById('testResult');
+  if(!r.results||!r.results.length)d.innerHTML='<span class="empty">无结果</span>';
+  else d.innerHTML = r.results.map(i=>{
+    if(i.error)return`<div class="result-item">${i.stadium} ${i.date} ❌ ${i.error}</div>`;
+    if(i.slots&&i.slots.length)return`<div class="result-item">🎾 ${i.stadium} ${i.date}: ${i.slots.map(s=>s.field+' '+s.time+' ¥'+s.price).join(', ')}</div>`;
+    if(i.nearest)return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全满 | 最近 ${i.nearest.field} ${i.nearest.time} ¥${i.nearest.price}</div>`;
+    return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全天无空场</div>`;
+  }).join('');
   b.disabled=false; b.textContent='🔍 查询一次';
 }
+
 async function refreshLogs(){
   const r = await api('/api/logs');
   const p = document.getElementById('logPanel');
   if(r.logs&&r.logs.length){p.innerHTML=r.logs.map(l=>{
-    let c='';if(l.includes('🎾')||l.includes('空场'))c='log-find';else if(l.includes('❌'))c='log-err';else if(l.includes('⚪'))c='log-warn';
+    let c='';if(l.includes('🎾')||l.includes('空场')||l.includes('已下单'))c='log-find';else if(l.includes('❌'))c='log-err';else if(l.includes('⚪'))c='log-warn';
     return`<span class="${c}">${l}</span>`}).join('\n');p.scrollTop=p.scrollHeight}
 }
 async function clearLogs(){await api('/api/logs/clear','POST')}

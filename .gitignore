@@ -1,6 +1,9 @@
 # 个人配置（含签名、session、SendKey）
 config.json
 
+# 工作记忆（含 session、密钥等敏感信息）
+.workbuddy/
+
 # 抓包数据
 captures/
 *.flows
