@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# 韵动吧场地助手的入口。自己定位所在目录，用项目自带的 venv 跑，
+# 所以从任何工作目录调用都成立 —— skill 只需要知道这个文件的绝对路径。
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -x "$HERE/.venv/bin/python" ]; then
+    echo "缺少虚拟环境。先跑：bash $HERE/install.sh" >&2
+    exit 1
+fi
+
+exec "$HERE/.venv/bin/python" "$HERE/cli.py" "$@"

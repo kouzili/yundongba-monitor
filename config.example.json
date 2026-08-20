@@ -1,5 +1,6 @@
 {
-  "_comment": "复制为 config.json 后填入你的信息。config.json 已被 .gitignore 忽略，不会上传。",
+  "_comment": "复制为 config.json。config.json 已被 .gitignore 忽略，不会上传。secret_api 用 tools/get_secret.py 自动写入。",
+  "secret_api": "",
   "appsessionid": "",
   "userid": 0,
   "stadiums": {},
@@ -9,9 +10,9 @@
   "start_date": "",
   "end_date": "",
   "poll_interval": 30,
-  "auto_book": false,
-  "serverchan_key": "",
   "cityid": 75,
-  "secret_api": "",
-  "secret_ydb": ""
+  "feishu_webhook": "",
+  "feishu_secret": "",
+  "fail_alert_rounds": 3,
+  "bind_host": "127.0.0.1"
 }

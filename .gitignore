@@ -20,3 +20,18 @@ __pycache__/
 .DS_Store
 *.log
 /tmp/
+
+# 上传上来的小程序包
+captures_pkg/
+
+# pytest
+.pytest_cache/
+
+# 自带的 android platform-tools（二进制，按需下载）
+tools/android/
+
+# 配速器跨进程状态
+.rate_state.json
+
+# skill 由 install.sh 从 skill/SKILL.md 生成
+.claude/skills/

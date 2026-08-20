@@ -2,28 +2,32 @@
 """
 微信小程序 wxapkg 解密 + 解包工具（通用）
 ==========================================
-用于逆向微信小程序代码包（V1MMWX 加密格式），提取 JS 源码以分析签名算法。
+用于解包微信小程序代码包，提取 JS 源码以分析签名算法。
 
-解密原理（V1MMWX 格式，已实测验证）:
-  - 文件头: 前 6 字节魔数 b"V1MMWX"
-  - 密钥:   PBKDF2-HMAC-SHA1(appid, salt=b"saltiest", iterations=1000, dkLen=32)
-  - IV:     b"the iv: 16 bytes"
-  - 前 1024 字节用 AES-256-CBC 解密，取前 1023 字节明文
-  - 其余字节 XOR 解密，key = ord(appid[-2])
+包有两种形态:
+  - 安卓 (/sdcard/Android/data/com.tencent.mm/.../appbrand/pkg/*.wxapkg)
+    未加密，0xBE 开头，直接解包即可，不需要 appid
+  - 微信桌面端缓存
+    V1MMWX 加密，需要 --appid 才能解密:
+      密钥 PBKDF2-HMAC-SHA1(appid, salt=b"saltiest", iter=1000, dkLen=32)
+      IV   b"the iv: 16 bytes"
+      前 1024 字节 AES-256-CBC 解密取前 1023 字节，其余 XOR ord(appid[-2])
+
+包路径必须显式给出（--pkg），不再自动搜索微信缓存目录 —— 那个路径只在
+macOS 上成立。
 
 用法:
-  python3 reverse_wxapkg.py                       # 自动搜索微信缓存里的小程序包并解密
-  python3 reverse_wxapkg.py --list                # 只列出找到的包，不解密
-  python3 reverse_wxapkg.py --appid wx123456789   # 指定 appid 解密
-  python3 reverse_wxapkg.py --pkg /path/__APP__.wxapkg  # 指定包路径
-  python3 reverse_wxapkg.py --search sign         # 解包后搜索关键词（如 sign/md5/appkey）
-  python3 reverse_wxapkg.py --out /tmp/out        # 指定输出目录
+  python3 reverse_wxapkg.py --pkg /path/to/pkg.wxapkg
+  python3 reverse_wxapkg.py --pkg /path/to/dir/          # 递归找 *.wxapkg
+  python3 reverse_wxapkg.py --pkg X --list               # 只列出，不解包
+  python3 reverse_wxapkg.py --pkg X --appid wx123456789  # 加密包需要 appid
+  python3 reverse_wxapkg.py --pkg X --search sign        # 解包后搜关键词
+  python3 reverse_wxapkg.py --pkg X --out /tmp/out       # 指定输出目录
 
 依赖: pycryptodome  (pip install pycryptodome)
 """
 
 import argparse
-import glob
 import os
 import struct
 import sys
@@ -37,12 +41,6 @@ except ImportError:
     sys.exit(1)
 
 
-# 微信 Mac 客户端小程序包缓存目录
-WECHAT_CONTAINER = os.path.expanduser(
-    "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/"
-    "app_data/radium/users/*/applet/packages/*/*/__APP__.wxapkg"
-)
-
 MAGIC = b"V1MMWX"
 SALT = b"saltiest"
 IV = b"the iv: 16 bytes"
@@ -51,27 +49,25 @@ AES_BLOCK_LEN = 1024   # 头部 AES 加密区字节数
 AES_PLAIN_LEN = 1023   # 解密后取前 1023 字节明文
 
 
-def find_wxapkg(appid=None):
-    """搜索微信缓存目录里的小程序包，返回 [(appid, path), ...]"""
-    results = []
-    for path in glob.glob(WECHAT_CONTAINER):
-        # 从路径解析 appid: .../packages/<appid>/<version>/__APP__.wxapkg
-        parts = path.split(os.sep)
-        try:
-            idx = parts.index("packages")
-            pkg_appid = parts[idx + 1]
-        except (ValueError, IndexError):
-            pkg_appid = "?"
-        if appid and pkg_appid != appid:
-            continue
-        results.append((pkg_appid, path))
-    return results
+def collect_packages(path) -> list:
+    """path 是文件就返回它自己；是目录就递归找 *.wxapkg。"""
+    p = Path(path)
+    if p.is_file():
+        return [p]
+    if p.is_dir():
+        return sorted(p.rglob("*.wxapkg"))
+    return []
+
+
+def is_encrypted(data: bytes) -> bool:
+    """带 V1MMWX 魔数的是微信桌面端加密包，需要 appid 才能解；安卓上的包无此头。"""
+    return data.startswith(MAGIC)
 
 
 def decrypt_wxapkg(appid, data):
     """解密 V1MMWX 格式的 wxapkg，返回明文 bytes"""
-    if not data.startswith(MAGIC):
-        # 可能已经是明文包，直接返回
+    if not is_encrypted(data):
+        # 安卓上的包本来就是明文，直接返回
         return data
 
     # 1. 派生 AES 密钥
@@ -93,6 +89,17 @@ def decrypt_wxapkg(appid, data):
     return decrypted
 
 
+def safe_member_path(name: str) -> str:
+    """把包内文件名收敛成 outdir 内的相对路径。
+
+    包是从网上下载的，文件名不可信：前导斜杠会写到根目录，".." 会逃出输出目录。
+    两者都剔掉而不是整条丢弃 —— 内容还是要看的，只是必须留在 outdir 里。
+    """
+    parts = [p for p in Path(name.lstrip("/")).parts
+             if p not in ("..", ".", "/")]
+    return str(Path(*parts)) if parts else ""
+
+
 def unpack_wxapkg(data, outdir):
     """解包 wxapkg，返回 [(文件名, 大小), ...]"""
     if len(data) < 18 or data[0] != 0xBE:
@@ -112,14 +119,17 @@ def unpack_wxapkg(data, outdir):
         pos += 4
         files.append((name, offset, size))
 
-    outdir = Path(outdir)
+    outdir = Path(outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     result = []
     for name, offset, size in files:
-        clean = name.lstrip("/")   # 去掉前导斜杠，防止写出目录
+        clean = safe_member_path(name)
         if not clean:
             continue
         path = outdir / clean
+        # 双保险：清洗后仍落在 outdir 之外的直接跳过
+        if not path.resolve().is_relative_to(outdir):
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             f.write(data[offset:offset + size])
@@ -150,45 +160,40 @@ def search_unpacked(outdir, keyword):
 
 
 def main():
-    p = argparse.ArgumentParser(description="微信小程序 wxapkg 解密 + 解包工具")
-    p.add_argument("--appid", help="指定小程序 appid")
-    p.add_argument("--pkg", help="指定 __APP__.wxapkg 路径（默认自动搜索）")
-    p.add_argument("--out", help="输出目录（默认 ./reverse_unpacked/<appid>）")
-    p.add_argument("--list", action="store_true", help="只列出找到的包，不解密")
+    p = argparse.ArgumentParser(description="微信小程序 wxapkg 解包工具")
+    p.add_argument("--pkg", required=True, help="wxapkg 文件或包含它的目录")
+    p.add_argument("--appid", help="小程序 appid，仅解密 V1MMWX 加密包时需要")
+    p.add_argument("--out", help="输出目录（默认 ./reverse_unpacked/<包名>）")
+    p.add_argument("--list", action="store_true", help="只列出找到的包，不解包")
     p.add_argument("--search", help="解包后搜索关键词")
     args = p.parse_args()
 
-    # 确定要处理的包
-    targets = []
-    if args.pkg:
-        appid = args.appid or "unknown"
-        targets = [(appid, args.pkg)]
-    else:
-        targets = find_wxapkg(args.appid)
-
+    targets = collect_packages(args.pkg)
     if not targets:
-        print("未找到小程序包。请先打开微信小程序让其缓存代码包，或用 --pkg 指定路径。")
+        print(f"{args.pkg} 下没找到 .wxapkg。安卓上的路径通常是："
+              f"\n  /sdcard/Android/data/com.tencent.mm/MicroMsg/*/appbrand/pkg/")
         return
 
     if args.list:
         print("找到的小程序包：")
-        for appid, path in targets:
-            size = os.path.getsize(path)
-            print(f"  [{appid}] {path}  ({size} 字节)")
+        for path in targets:
+            print(f"  {path}  ({path.stat().st_size} 字节)")
         return
 
-    # 逐个解密 + 解包
-    for appid, path in targets:
-        print(f"\n=== 处理 [{appid}] ===")
-        print(f"  包路径: {path}")
-        with open(path, "rb") as f:
-            raw = f.read()
+    for path in targets:
+        print(f"\n=== 处理 {path.name} ===")
+        raw = path.read_bytes()
         print(f"  原始大小: {len(raw)} 字节, 魔数: {raw[:6]!r}")
 
-        decrypted = decrypt_wxapkg(appid, raw)
+        if is_encrypted(raw) and not args.appid:
+            print("  ❌ 这是微信桌面端的加密包，需要 --appid 才能解密。"
+                  "安卓上取的包不需要 appid。")
+            continue
+
+        decrypted = decrypt_wxapkg(args.appid or "", raw)
         print(f"  解密后: {len(decrypted)} 字节, 魔数: {decrypted[:4].hex()}")
 
-        outdir = args.out or os.path.join("reverse_unpacked", appid)
+        outdir = args.out or os.path.join("reverse_unpacked", path.stem)
         files = unpack_wxapkg(decrypted, outdir)
         print(f"  解包 {len(files)} 个文件 -> {outdir}")
 

@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>韵动吧 网球场监控</title>
+<title>韵动吧 场地监控</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font:13px/1.6 -apple-system,sans-serif;background:#f5f5f5;color:#333}
 .header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
 .header h1{font-size:16px;font-weight:500}
-.status-bar{display:flex;gap:16px;font-size:12px}
+.status-bar{display:flex;gap:16px;font-size:12px;align-items:center}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 .on{background:#4caf50}.off{background:#e53935}
 .container{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:370px 1fr;gap:16px}
@@ -17,8 +17,9 @@ body{font:13px/1.6 -apple-system,sans-serif;background:#f5f5f5;color:#333}
 .card h3{font-size:13px;font-weight:500;margin-bottom:8px;color:#555;border-bottom:1px solid #eee;padding-bottom:6px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
 label{font-size:12px;color:#666;min-width:50px}
-input[type=text],input[type=number],input[type=date]{padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px}
+input[type=text],input[type=number],input[type=date],input[type=password]{padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px}
 input[type=number]{width:55px}
+input.wide{flex:1;min-width:0}
 .btn{padding:6px 14px;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:500}
 .btn:hover{opacity:.88}
 .btn-primary{background:#1a73e8;color:#fff}
@@ -26,89 +27,94 @@ input[type=number]{width:55px}
 .btn-danger{background:#e53935;color:#fff}
 .btn-gray{background:#666;color:#fff;padding:4px 10px;font-size:11px}
 .hint{font-size:11px;color:#999;margin-top:4px}
-.proxy-box{background:#e8f5e9;border:1px solid #4caf50;border-radius:6px;padding:10px;margin:8px 0;font-size:12px}
-.proxy-box code{background:#fff;padding:2px 6px;border-radius:3px;font-size:14px;font-weight:500}
-/* 优先级列表拖拽 */
+.warn-box{background:#fff4e5;border:1px solid #ffb74d;border-radius:6px;padding:9px;margin:6px 0;font-size:12px;color:#7a4b00}
+.warn-box code{background:#fff;padding:1px 5px;border-radius:3px}
+.set-yes{color:#0d904f}.set-no{color:#e53935}
 .pri-item{display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f7f7f7;border:1px solid #e5e5e5;border-radius:5px;margin-bottom:5px;cursor:grab}
 .pri-item.dragging{opacity:.4}
-.pri-item .grip{cursor:grab;color:#bbb}
-.pri-item .name{flex:1}
+.pri-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pri-item .del{color:#e53935;cursor:pointer;font-size:14px}
 .pri-num{background:#1a73e8;color:#fff;border-radius:50%;width:18px;height:18px;text-align:center;line-height:18px;font-size:11px;flex-shrink:0}
-/* 搜索结果 */
-.search-result{padding:5px 8px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between}
+.search-result{padding:5px 8px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 .search-result:hover{background:#f0f6ff}
-.search-result .add{color:#1a73e8}
-#logPanel{height:460px;overflow-y:auto;background:#1e1e1e;color:#d4d4d4;font:12px Menlo,monospace;padding:10px;border-radius:4px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+.search-result .add{color:#1a73e8;flex-shrink:0}
+#logPanel{height:520px;overflow-y:auto;background:#1e1e1e;color:#d4d4d4;font:12px Menlo,monospace;padding:10px;border-radius:4px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
 .log-find{color:#4caf50}.log-err{color:#e53935}.log-warn{color:#ff9800}
 .result-item{font-size:12px;padding:4px 0;border-bottom:1px solid #f0f0f0}
 .empty{color:#999;font-style:italic}
-.switch{display:flex;align-items:center;gap:6px;font-size:12px}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>🎾 韵动吧 · 网球场监控</h1>
+  <h1>🎾 韵动吧 · 场地监控</h1>
   <div class="status-bar">
-    <span>抓包 <span class="dot" id="mdot"></span><span id="mtxt">-</span></span>
     <span>监控 <span class="dot" id="odot"></span><span id="otxt">停止</span></span>
   </div>
 </div>
 
 <div class="container">
 <div>
-  <!-- 抓包（刷新会话） -->
+  <!-- 凭证 -->
   <div class="card">
-    <h3>📡 刷新会话</h3>
+    <h3>🔑 凭证</h3>
+    <div id="secretWarn"></div>
     <div class="row">
-      <button class="btn btn-success" onclick="captureStart()">▶ 启动抓包</button>
-      <button class="btn btn-danger" onclick="captureStop()">⏹ 停止</button>
+      <label>签名密钥</label>
+      <input type="password" class="wide" id="secretApi" placeholder="留空则不修改">
+      <span id="secretState"></span>
     </div>
-    <div id="proxyInfo" class="hint"></div>
-    <div class="row" style="margin-top:8px">
-      <button class="btn btn-primary" onclick="extractSession()" style="width:100%">🔑 提取会话 (appsessionid)</button>
+    <div class="row">
+      <label>飞书 URL</label>
+      <input type="password" class="wide" id="feishuWebhook" placeholder="留空则不修改">
+      <span id="webhookState"></span>
     </div>
-    <div id="extractResult" class="hint"></div>
-    <div class="hint" style="margin-top:6px">appsessionid: <span id="sidDisplay">-</span></div>
+    <div class="row">
+      <label>飞书签名</label>
+      <input type="password" class="wide" id="feishuSecret" placeholder="机器人未开签名校验则不用填">
+      <span id="feishuSecretState"></span>
+    </div>
+    <div class="row">
+      <label>session</label>
+      <input type="password" class="wide" id="appsessionid" placeholder="通常不需要，留空">
+      <span id="sessionState"></span>
+    </div>
+    <div class="row">
+      <button class="btn btn-primary" onclick="saveSecrets(this)">💾 保存凭证</button>
+      <button class="btn btn-gray" onclick="testNotify(this)">📨 测试推送</button>
+    </div>
+    <div id="secretResult" class="hint"></div>
   </div>
 
-  <!-- 场地配置 -->
+  <!-- 场地 -->
   <div class="card">
-    <h3>📍 场地（可拖拽排序优先级）</h3>
+    <h3>📍 场地（拖拽排序）</h3>
     <div class="row">
-      <input type="text" id="searchKw" placeholder="搜索场地名，如：古北" style="flex:1">
+      <input type="text" class="wide" id="searchKw" placeholder="搜索场地名，如：古北">
       <button class="btn btn-primary" onclick="searchStadium()">搜索</button>
     </div>
     <div id="searchResults"></div>
     <div id="priList" style="margin-top:8px"></div>
-    <div class="hint">拖拽调整优先级，排前面的优先通知/下单</div>
+    <div class="hint">所有场地都会被查询，排序只决定日志与推送里的先后</div>
   </div>
 
   <!-- 日期 & 时段 & 控制 -->
   <div class="card">
     <h3>📅 日期 & 时段 & 控制</h3>
     <div class="row">
-      <label>开始</label>
-      <input type="date" id="startDate">
-      <label>结束</label>
-      <input type="date" id="endDate">
+      <label>开始</label><input type="date" id="startDate">
+      <label>结束</label><input type="date" id="endDate">
     </div>
     <div class="row">
       <label>时段</label>
-      <input type="number" id="sh" min="8" max="23"> :00 -
-      <input type="number" id="eh" min="8" max="23"> :00
+      <input type="number" id="sh" min="0" max="23"> :00 -
+      <input type="number" id="eh" min="1" max="24"> :00
     </div>
     <div class="row">
-      <label>间隔</label>
-      <input type="number" id="iv" min="10" max="300"> 秒
-    </div>
-    <div class="row switch">
-      <input type="checkbox" id="autoBook">
-      <label style="min-width:0">自动下单（默认只微信通知，勾选后自动抢场）</label>
+      <label>间隔</label><input type="number" id="iv" min="10" max="3600"> 秒
     </div>
     <div class="row">
-      <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
-      <button class="btn btn-gray" onclick="testQuery()">🔍 查询一次</button>
+      <button class="btn btn-primary" onclick="saveConfig(this)">💾 保存配置</button>
+      <button class="btn btn-gray" onclick="testQuery(this)">🔍 查询一次</button>
     </div>
     <div id="testResult" style="margin-top:8px"></div>
     <div class="row" style="margin-top:8px">
@@ -130,153 +136,193 @@ input[type=number]{width:55px}
 </div>
 
 <script>
-let cfg = {}, pollTimer;
-let dragIdx = null;
-let cfgLoaded = false;
+let cfg = {}, dragIdx = null, cfgLoaded = false;
+
+// 场馆名来自远端接口，一律转义后再进 DOM
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function $(id){ return document.getElementById(id) }
+
+async function api(u, m, b){
+  const o = {method: m || 'GET', headers: {'Content-Type':'application/json'}};
+  if(b) o.body = JSON.stringify(b);
+  const r = await fetch(u, o);
+  return r.json();
+}
 
 (async function init(){
   await refreshStatus();
-  pollTimer = setInterval(async ()=>{await refreshStatus();await refreshLogs()}, 2000);
+  setInterval(async ()=>{ await refreshStatus(); await refreshLogs() }, 2000);
 })();
 
-async function api(u,m,b){const o={method:m,headers:{'Content-Type':'application/json'}};if(b)o.body=JSON.stringify(b);const r=await fetch(u,o);return r.json()}
+function renderSetState(id, isSet){
+  const el = $(id);
+  el.className = isSet ? 'set-yes' : 'set-no';
+  el.textContent = isSet ? '已设置' : '未设置';
+}
 
 async function refreshStatus(){
   const s = await api('/api/status');
-  document.getElementById('mdot').className = 'dot '+(s.mitm_alive?'on':'off');
-  document.getElementById('mtxt').textContent = s.mitm_alive?'运行中':'停止';
-  document.getElementById('odot').className = 'dot '+(s.monitor_running?'on':'off');
-  document.getElementById('otxt').textContent = s.monitor_running?'运行中':'停止';
+  $('odot').className = 'dot ' + (s.monitor_running ? 'on' : 'off');
+  $('otxt').textContent = s.monitor_running ? '运行中' : '停止';
   cfg = s.config;
-  document.getElementById('sidDisplay').textContent = (cfg.appsessionid||'') ? cfg.appsessionid.slice(0,8)+'...' : '未设置';
-  // 只在首次加载时填充输入框，避免定时刷新覆盖用户未保存的修改
+
+  renderSetState('secretState', cfg.secret_api_set);
+  renderSetState('webhookState', cfg.feishu_webhook_set);
+  renderSetState('feishuSecretState', cfg.feishu_secret_set);
+  renderSetState('sessionState', cfg.appsessionid_set);
+  $('secretWarn').innerHTML = cfg.secret_api_set ? '' :
+    '<div class="warn-box">还没有签名密钥，所有查询都会返回「签名错误」。<br>' +
+    '先在这台机器上跑 <code>.venv/bin/python tools/get_secret.py</code></div>';
+
+  // 只在首次填充，避免定时刷新覆盖没保存的修改
   if(!cfgLoaded){
-    document.getElementById('startDate').value = cfg.start_date||'';
-    document.getElementById('endDate').value = cfg.end_date||'';
-    document.getElementById('sh').value = cfg.target_start||18;
-    document.getElementById('eh').value = cfg.target_end||21;
-    document.getElementById('iv').value = cfg.poll_interval||30;
-    document.getElementById('autoBook').checked = !!cfg.auto_book;
+    $('startDate').value = cfg.start_date || '';
+    $('endDate').value = cfg.end_date || '';
+    $('sh').value = cfg.target_start;
+    $('eh').value = cfg.target_end;
+    $('iv').value = cfg.poll_interval;
     cfgLoaded = true;
   }
   renderPriority();
 }
 
 function renderPriority(){
-  const div = document.getElementById('priList');
-  const priority = cfg.stadium_priority||[];
-  const stadiums = cfg.stadiums||{};
-  if(!priority.length){div.innerHTML='<span class="empty">暂无场地，搜索添加</span>';return}
-  div.innerHTML = priority.map((sid,idx)=>{
-    const name = stadiums[sid]||sid;
-    return `<div class="pri-item" draggable="true" ondragstart="dragStart(event,${idx})" ondragover="event.preventDefault()" ondrop="dropItem(event,${idx})">
+  const div = $('priList');
+  const priority = cfg.stadium_priority || [];
+  const stadiums = cfg.stadiums || {};
+  if(!priority.length){ div.innerHTML = '<span class="empty">暂无场地，搜索添加</span>'; return }
+  div.innerHTML = priority.map((sid, idx) => `
+    <div class="pri-item" draggable="true" data-idx="${idx}">
       <span class="pri-num">${idx+1}</span>
-      <span class="name">${name}</span>
-      <span style="color:#999;font-size:10px">ID:${sid}</span>
-      <span class="del" onclick="removeStadium('${sid}')" title="移除">✕</span>
-    </div>`;
-  }).join('');
+      <span class="name">${esc(stadiums[sid] || sid)}</span>
+      <span style="color:#999;font-size:10px">ID:${esc(sid)}</span>
+      <span class="del" data-sid="${esc(sid)}" title="移除">✕</span>
+    </div>`).join('');
 }
 
-function dragStart(e, idx){ dragIdx = idx; e.target.classList.add('dragging'); }
-function dropItem(e, idx){
+// 事件委托：避免把远端字符串拼进 onclick
+$('priList').addEventListener('dragstart', e => {
+  const item = e.target.closest('.pri-item');
+  if(item){ dragIdx = Number(item.dataset.idx); item.classList.add('dragging') }
+});
+$('priList').addEventListener('dragover', e => e.preventDefault());
+$('priList').addEventListener('drop', async e => {
   e.preventDefault();
-  const priority = [...(cfg.stadium_priority||[])];
+  const item = e.target.closest('.pri-item');
+  if(!item || dragIdx === null) return;
+  const priority = [...(cfg.stadium_priority || [])];
   const [moved] = priority.splice(dragIdx, 1);
-  priority.splice(idx, 0, moved);
+  priority.splice(Number(item.dataset.idx), 0, moved);
   cfg.stadium_priority = priority;
   renderPriority();
-  api('/api/config','POST',{stadium_priority:priority});
-}
+  await api('/api/config', 'POST', {stadium_priority: priority});
+});
+$('priList').addEventListener('click', async e => {
+  if(!e.target.classList.contains('del')) return;
+  const sid = e.target.dataset.sid;
+  const priority = (cfg.stadium_priority || []).filter(x => x !== sid);
+  await api('/api/config', 'POST', {stadium_priority: priority});
+  await refreshStatus();
+});
 
 async function searchStadium(){
-  const kw = document.getElementById('searchKw').value.trim();
+  const kw = $('searchKw').value.trim();
   if(!kw) return;
-  const r = await api('/api/search','POST',{keyword:kw});
-  const div = document.getElementById('searchResults');
-  if(!r.results || !r.results.length){ div.innerHTML='<div class="empty">无结果</div>'; return; }
-  div.innerHTML = r.results.map(s=>{
-    return `<div class="search-result" onclick="addStadium('${s.stadiumid}','${s.name.replace(/'/g,"")}')">
-      <span>${s.name}</span><span class="add">+ 添加</span>
-    </div>`;
-  }).join('');
+  const r = await api('/api/search', 'POST', {keyword: kw});
+  const div = $('searchResults');
+  if(!r.ok){ div.innerHTML = `<div class="empty">${esc(r.msg || '搜索失败')}</div>`; return }
+  if(!r.results.length){ div.innerHTML = '<div class="empty">无结果</div>'; return }
+  div.innerHTML = r.results.map(s => `
+    <div class="search-result" data-sid="${esc(s.stadiumid)}" data-name="${esc(s.name)}">
+      <span>${esc(s.name)}</span><span class="add">+ 添加</span>
+    </div>`).join('');
 }
 
-async function addStadium(sid, name){
-  const stadiums = {...(cfg.stadiums||{})};
+$('searchResults').addEventListener('click', async e => {
+  const row = e.target.closest('.search-result');
+  if(!row) return;
+  const sid = row.dataset.sid, name = row.dataset.name;
+  const stadiums = {...(cfg.stadiums || {})};
   stadiums[sid] = name;
-  const priority = [...(cfg.stadium_priority||[])];
+  const priority = [...(cfg.stadium_priority || [])];
   if(!priority.includes(sid)) priority.push(sid);
-  cfg.stadiums = stadiums; cfg.stadium_priority = priority;
-  await api('/api/config','POST',{stadiums, stadium_priority:priority});
-  document.getElementById('searchResults').innerHTML='';
-  document.getElementById('searchKw').value='';
+  await api('/api/config', 'POST', {stadiums, stadium_priority: priority});
+  $('searchResults').innerHTML = '';
+  $('searchKw').value = '';
   await refreshStatus();
-}
+});
 
-async function removeStadium(sid){
-  const priority = (cfg.stadium_priority||[]).filter(x=>x!==sid);
-  cfg.stadium_priority = priority;
-  await api('/api/config','POST',{stadium_priority:priority});
-  await refreshStatus();
-}
-
-async function captureStart(){
-  const r = await api('/api/capture/start','POST');
-  if(r.ok) document.getElementById('proxyInfo').innerHTML=
-    '<div class="proxy-box">📱 手机代理<br>服务器: <code>'+r.ip+'</code> 端口: <code>8080</code><br>WiFi→HTTP代理→手动<br>配好后打开韵动吧小程序逛一下</div>';
-  else alert(r.msg);
-}
-async function captureStop(){await api('/api/capture/stop','POST');document.getElementById('proxyInfo').innerHTML='<span class="empty">已停止</span>'}
-async function extractSession(){
-  const b = event.target; b.disabled=true; b.textContent='提取中...';
-  const r = await api('/api/capture/extract','POST');
-  if(r.ok){
-    document.getElementById('extractResult').innerHTML='<span style="color:#4caf50">✅ 会话已刷新</span>';
-  }else{
-    document.getElementById('extractResult').innerHTML='<span style="color:#e53935">❌ '+r.msg+'</span>';
-  }
-  b.disabled=false; b.textContent='🔑 提取会话 (appsessionid)';
-  await refreshStatus();
-}
-
-async function saveConfig(){
-  await api('/api/config','POST',{
-    start_date: document.getElementById('startDate').value,
-    end_date: document.getElementById('endDate').value,
-    target_start: parseInt(document.getElementById('sh').value),
-    target_end: parseInt(document.getElementById('eh').value),
-    poll_interval: parseInt(document.getElementById('iv').value),
-    auto_book: document.getElementById('autoBook').checked,
+async function saveSecrets(btn){
+  btn.disabled = true;
+  // 空值表示「不修改」，后端会跳过
+  await api('/api/config', 'POST', {
+    secret_api: $('secretApi').value.trim(),
+    feishu_webhook: $('feishuWebhook').value.trim(),
+    feishu_secret: $('feishuSecret').value.trim(),
+    appsessionid: $('appsessionid').value.trim(),
   });
+  ['secretApi','feishuWebhook','feishuSecret','appsessionid'].forEach(id => $(id).value = '');
+  $('secretResult').innerHTML = '<span class="set-yes">已保存</span>';
+  btn.disabled = false;
   await refreshStatus();
 }
 
-async function monitorStart(){await api('/api/monitor/start','POST');await refreshStatus()}
-async function monitorStop(){await api('/api/monitor/stop','POST');await refreshStatus()}
+async function testNotify(btn){
+  btn.disabled = true; btn.textContent = '发送中…';
+  const r = await api('/api/notify/test', 'POST');
+  $('secretResult').innerHTML = r.ok
+    ? '<span class="set-yes">✅ 推送成功，看下飞书</span>'
+    : `<span class="set-no">❌ ${esc(r.msg)}</span>`;
+  btn.disabled = false; btn.textContent = '📨 测试推送';
+}
 
-async function testQuery(){
-  const b = event.target; b.disabled=true; b.textContent='查询中...';
-  const r = await api('/api/test','POST');
-  const d = document.getElementById('testResult');
-  if(!r.results||!r.results.length)d.innerHTML='<span class="empty">无结果</span>';
-  else d.innerHTML = r.results.map(i=>{
-    if(i.error)return`<div class="result-item">${i.stadium} ${i.date} ❌ ${i.error}</div>`;
-    if(i.slots&&i.slots.length)return`<div class="result-item">🎾 ${i.stadium} ${i.date}: ${i.slots.map(s=>s.field+' '+s.time+' ¥'+s.price).join(', ')}</div>`;
-    if(i.nearest)return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全满 | 最近 ${i.nearest.field} ${i.nearest.time} ¥${i.nearest.price}</div>`;
-    return`<div class="result-item">⚪ ${i.stadium} ${i.date}: 全天无空场</div>`;
-  }).join('');
-  b.disabled=false; b.textContent='🔍 查询一次';
+async function saveConfig(btn){
+  btn.disabled = true;
+  await api('/api/config', 'POST', {
+    start_date: $('startDate').value,
+    end_date: $('endDate').value,
+    target_start: parseInt($('sh').value),
+    target_end: parseInt($('eh').value),
+    poll_interval: parseInt($('iv').value),
+  });
+  btn.disabled = false;
+  await refreshStatus();
+}
+
+async function monitorStart(){ await api('/api/monitor/start','POST'); await refreshStatus() }
+async function monitorStop(){ await api('/api/monitor/stop','POST'); await refreshStatus() }
+
+async function testQuery(btn){
+  btn.disabled = true; btn.textContent = '查询中…';
+  const r = await api('/api/test', 'POST');
+  const rows = [];
+  (r.slots || []).forEach(s => rows.push(
+    `<div class="result-item">🎾 ${esc(s.stadium)} ${esc(s.date)} ${esc(s.time)} · ${esc(s.field)} · ¥${esc(s.price)}</div>`));
+  (r.misses || []).forEach(m => rows.push(
+    `<div class="result-item">⚪ ${esc(m.stadium)} ${esc(m.date)} 全满 | 最近 ${esc(m.nearest.field)} ${esc(m.nearest.time)} ¥${esc(m.nearest.price)}</div>`));
+  (r.failures || []).forEach(f => rows.push(
+    `<div class="result-item">❌ ${esc(f.stadium)} ${esc(f.date)} ${esc(f.error)}</div>`));
+  $('testResult').innerHTML = rows.length ? rows.join('') : '<span class="empty">目标时段无空场，也没有可比较的时段</span>';
+  btn.disabled = false; btn.textContent = '🔍 查询一次';
 }
 
 async function refreshLogs(){
   const r = await api('/api/logs');
-  const p = document.getElementById('logPanel');
-  if(r.logs&&r.logs.length){p.innerHTML=r.logs.map(l=>{
-    let c='';if(l.includes('🎾')||l.includes('空场')||l.includes('已下单'))c='log-find';else if(l.includes('❌'))c='log-err';else if(l.includes('⚪'))c='log-warn';
-    return`<span class="${c}">${l}</span>`}).join('\n');p.scrollTop=p.scrollHeight}
+  const p = $('logPanel');
+  if(!r.logs || !r.logs.length) return;
+  p.innerHTML = r.logs.map(l => {
+    let c = '';
+    if(l.includes('🟢') || l.includes('🎾')) c = 'log-find';
+    else if(l.includes('❌')) c = 'log-err';
+    else if(l.includes('⚪') || l.includes('⚠️')) c = 'log-warn';
+    return `<span class="${c}">${esc(l)}</span>`;
+  }).join('\n');
+  p.scrollTop = p.scrollHeight;
 }
-async function clearLogs(){await api('/api/logs/clear','POST')}
+async function clearLogs(){ await api('/api/logs/clear','POST') }
 </script>
 </body>
 </html>
