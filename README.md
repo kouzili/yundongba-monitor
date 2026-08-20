@@ -19,7 +19,7 @@
 ./ydb orders / login / book / cancel
 ```
 
-技能描述模板在 `skill/SKILL.md`，`install.sh` 会把它渲染进 `~/.claude/skills/ydb/`。
+技能描述模板在 `skill/SKILL.md`。让 agent 自己装的话，它会读 `AGENTS.md`。
 
 **常驻盯场 + 飞书推送**（`app.py`，Web 后台）：见下文。
 
